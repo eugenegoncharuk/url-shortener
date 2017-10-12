@@ -1,0 +1,74 @@
+const AWS = require('aws-sdk'); // eslint-disable-line import/no-extraneous-dependencies
+const db = new AWS.DynamoDB.DocumentClient();
+
+exports.handler = (event, context, callback) => {
+    
+const availableCharsForShortener = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+function randomString(length, chars) {
+    var result = '';
+    for (var i = length; i > 0; --i) result += chars[Math.round(Math.random() * (chars.length - 1))];
+    return result;
+}
+
+    //console.log('Received event:', JSON.stringify(event, null, 2));
+    //console.log('Received path parameters:', event['pathParameters']);
+
+    const redirect = (err, res) => callback(null, {
+        statusCode: err ? '400' : '302',
+        body: err ? err.message : "",
+        headers: {
+            'Location': res,
+        },
+    });
+    
+    const done = (err, res) => callback(null, {
+        statusCode: err ? '400' : '200',
+        body: err ? err.message : res,
+        headers: {
+            'Content-Type': 'text/html',
+        },
+    });
+    
+    const returnScript = (err, res) => {
+                    if (res.Item) {
+                        redirect(err, res.Item.url.trim()); 
+                    } else {
+                        done(err, "Wrong request");
+                    }
+                }
+    
+    switch (event.httpMethod) {
+        case 'GET':
+            var createParam = null;
+            var shortenParam = null;
+            if (event['pathParameters']) {
+                createParam = event['pathParameters']['createParam'];
+                shortenParam = event['pathParameters']['shortenParam'];
+            }
+                
+            if (createParam) {
+                var datetime = new Date().getTime();
+                var nextId = randomString(16, availableCharsForShortener);
+                //console.log(nextId);
+                
+                db.put({
+                "TableName": "Mappings",
+                "Item" : {
+                    "shortenedhash" : nextId,
+                    "url" : decodeURIComponent(createParam.trim()),
+                    "creationdate": datetime
+                    }
+                }, (err, res) => {done(err, "<hosted url>" + nextId)});
+            } else if (shortenParam) {
+                db.get({
+                    "TableName": "Mappings",
+                        "Key" : {
+                            "shortenedhash" : shortenParam
+                         }
+                }, returnScript);        
+            }
+            break;
+        default:
+            done(new Error(`Unsupported method "${event.httpMethod}"`));
+    }
+};
